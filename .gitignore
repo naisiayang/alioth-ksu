@@ -1,0 +1,9 @@
+ksu/
+anykernel3/
+toolchain/
+out/
+stock/
+modules/
+_home/
+*.tar.gz
+*.zip
