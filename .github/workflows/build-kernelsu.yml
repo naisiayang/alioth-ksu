@@ -54,13 +54,26 @@ jobs:
           cd kernel
           export ARCH=arm64 SUBARCH=arm64
           TOOL="$(pwd)/../tc"
-          export PATH="$TOOL/clang/bin:$PATH"
+          CLANG="$TOOL/clang/bin"
+          export PATH="$CLANG:$PATH"
+          # fix py2 wrapper
           python3 ../build/fix_wrapper.py scripts/gcc-wrapper.py
+          # dtc yylloc multiple-definition (newer bison): build host tools with -fcommon
+          export HOSTCFLAGS="-fcommon"
+          # configure
           make O=out ARCH=arm64 vendor/alioth_user_defconfig
           grep -q CONFIG_KSU out/.config || echo 'CONFIG_KSU=y' >> out/.config
           make O=out ARCH=arm64 olddefconfig
-          grep -i CONFIG_KSU out/.config
-          make -j"$(nproc)" O=out ARCH=arm64 CC="$TOOL/clang/bin/clang" CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE="$TOOL/gcc-arm64/bin/aarch64-elf-" CROSS_COMPILE_ARM32="$TOOL/gcc-arm/bin/arm-eabi-" Image
+          grep -i '^CONFIG_KSU=' out/.config
+          # build: AOSP clang integrated assembler + llvm binutils (aarch64 linux target, not elf)
+          make -j"$(nproc)" O=out ARCH=arm64 \
+            CC="clang" \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+            HOSTCFLAGS="-fcommon" \
+            Image
           IMG="$(find out -name Image | head -1)"
           echo "IMG=$IMG"
           ls -la "$IMG"
