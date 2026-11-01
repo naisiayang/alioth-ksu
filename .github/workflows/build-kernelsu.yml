@@ -56,26 +56,24 @@ jobs:
           TOOL="$(pwd)/../tc"
           CLANG="$TOOL/clang/bin"
           G="$TOOL/gcc-arm64/bin"
-          export PATH="$CLANG:$G:$PATH"
+          # 软链 aarch64-elf-* -> aarch64-linux-gnu-* 让 $(CROSS_COMPILE)as 指向真 aarch64 汇编器
+          mkdir -p "$TOOL/gccbin"
+          for t in as ld ar nm objcopy objdump strip ranlib; do
+            ln -sf "$G/aarch64-elf-$t" "$TOOL/gccbin/aarch64-linux-gnu-$t"
+          done
+          export PATH="$CLANG:$TOOL/gccbin:$PATH"
           python3 ../build/fix_wrapper.py scripts/gcc-wrapper.py
           export HOSTCFLAGS="-fcommon"
           make O=out ARCH=arm64 vendor/alioth_user_defconfig
           grep -q CONFIG_KSU out/.config || echo 'CONFIG_KSU=y' >> out/.config
           make O=out ARCH=arm64 olddefconfig
           grep -i '^CONFIG_KSU=' out/.config
-          # clang 编译 + GNU aarch64-elf binutils(认 -EL/-mlittle-endian)
+          # CROSS_COMPILE=aarch64-linux-gnu- 会让 make 用 gccbin 下软链的 as/ld(真aarch64)
           make -j"$(nproc)" O=out ARCH=arm64 \
             CC="clang" \
             CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE="$G/aarch64-elf-" \
+            CROSS_COMPILE="$TOOL/gccbin/aarch64-linux-gnu-" \
             CROSS_COMPILE_ARM32="$TOOL/gcc-arm/bin/arm-eabi-" \
-            AS="$G/aarch64-elf-as" \
-            LD="$G/aarch64-elf-ld" \
-            AR="$G/aarch64-elf-ar" \
-            NM="$G/aarch64-elf-nm" \
-            OBJCOPY="$G/aarch64-elf-objcopy" \
-            OBJDUMP="$G/aarch64-elf-objdump" \
-            STRIP="$G/aarch64-elf-strip" \
             HOSTCFLAGS="-fcommon" \
             Image
           IMG="$(find out -name Image | head -1)"
