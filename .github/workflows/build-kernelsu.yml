@@ -22,6 +22,15 @@ jobs:
             lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev \
             python3 cpio kmod device-tree-compiler unzip wget
 
+      - name: Ensure python2 (for Qualcomm gcc-wrapper.py)
+        run: |
+          sudo apt-get install -y python2.7 || true
+          if ! command -v python2 >/dev/null 2>&1; then
+            if command -v python2.7 >/dev/null 2>&1; then sudo ln -sf $(command -v python2.7) /usr/local/bin/python2;
+            else echo "no python2, will patch wrapper to py3"; fi
+          fi
+          python2 --version 2>&1 || echo "python2 absent"
+
       - name: Fetch toolchains
         run: |
           mkdir -p tc && cd tc
@@ -48,21 +57,28 @@ jobs:
         run: |
           cd kernel
           export ARCH=arm64 SUBARCH=arm64
-          TOOL=$(pwd)/../tc
-          export PATH="$TOOL/clang/bin:$PATH"
+          TOOL=\$(pwd)/../tc
+          export PATH="\$TOOL/clang/bin:\$PATH"
+          # [兜底] 若 python2 仍缺失, 把 gcc-wrapper.py 的 py2 print 补成 py3
+          if ! command -v python2 >/dev/null 2>&1; then
+            sed -i -E 's/print "([^"]*)"([^,]*),/print("\1"\2,/' scripts/gcc-wrapper.py || true
+            sed -i -E 's/print "([^"]*)"$/print("\1")/' scripts/gcc-wrapper.py || true
+            python3 -m py_compile scripts/gcc-wrapper.py && echo "patched wrapper to py3 OK" || true
+          else
+            echo "python2 present: $(python2 --version 2>&1)"
+          fi
           make O=out ARCH=arm64 vendor/alioth_user_defconfig
-          # 强制启用 KSU
           grep -q CONFIG_KSU out/.config || echo 'CONFIG_KSU=y' >> out/.config
           make O=out ARCH=arm64 olddefconfig
           grep -i CONFIG_KSU out/.config
-          make -j$(nproc) O=out ARCH=arm64 \
-            CC="$TOOL/clang/bin/clang" CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE="$TOOL/gcc-arm64/bin/aarch64-elf-" \
-            CROSS_COMPILE_ARM32="$TOOL/gcc-arm/bin/arm-eabi-" \
+          make -j\$(nproc) O=out ARCH=arm64 \
+            CC="\$TOOL/clang/bin/clang" CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE="\$TOOL/gcc-arm64/bin/aarch64-elf-" \
+            CROSS_COMPILE_ARM32="\$TOOL/gcc-arm/bin/arm-eabi-" \
             Image
-          IMG=$(find out -name Image | head -1)
-          echo "IMG=$IMG"; ls -la "$IMG"
-          cp "$IMG" ../ak3/Image
+          IMG=\$(find out -name Image | head -1)
+          echo "IMG=\$IMG"; ls -la "\$IMG"
+          cp "\$IMG" ../ak3/Image
 
       - name: Package with AnyKernel3
         run: |
