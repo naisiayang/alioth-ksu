@@ -52,9 +52,7 @@ jobs:
           export ARCH=arm64 SUBARCH=arm64
           TOOL="$(pwd)/../tc"
           export PATH="$TOOL/clang/bin:$PATH"
-          if ! command -v python2 >/dev/null 2>&1; then
-            sed -i 's/print "error, forbidden warning:", m.group(2)/print("error, forbidden warning:", m.group(2))/' scripts/gcc-wrapper.py || true
-          fi
+          python3 ../build/fix_wrapper.py scripts/gcc-wrapper.py
           make O=out ARCH=arm64 vendor/alioth_user_defconfig
           grep -q CONFIG_KSU out/.config || echo 'CONFIG_KSU=y' >> out/.config
           make O=out ARCH=arm64 olddefconfig
