@@ -73,6 +73,9 @@ jobs:
           for t in as ar nm objcopy objdump strip ranlib; do
             ln -sf "$G/aarch64-elf-$t" "$TOOL/gccbin/aarch64-linux-gnu-$t"
           done
+          # ld 用 clang 自带的 ld.lld (支持 linux emulation), 软链成 aarch64-linux-gnu-ld
+          ln -sf "$CLANG/ld.lld" "$TOOL/gccbin/aarch64-linux-gnu-ld"
+          ls -la "$TOOL/gccbin/aarch64-linux-gnu-ld"
           export PATH="$CLANG:$TOOL/gccbin:$PATH"
           python3 ../build/fix_wrapper.py scripts/gcc-wrapper.py
           make -j"$(nproc)" O=out ARCH=arm64 vendor/alioth_user_defconfig
