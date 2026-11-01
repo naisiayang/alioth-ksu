@@ -36,10 +36,18 @@ jobs:
       - name: Fetch toolchains
         run: |
           mkdir -p tc && cd tc
-          git clone --depth=1 -b gcc-master https://github.com/mvaisakh/gcc-arm64.git gcc-arm64
-          git clone --depth=1 -b gcc-master https://github.com/mvaisakh/gcc-arm.git gcc-arm
-          mkdir clang
-          curl -sL "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-12.0.0_r1/clang-r416183b.tar.gz" -o clang.tar.gz
+          # gcc 工具链(clone, 重试)
+          for i in 1 2 3; do git clone --depth=1 -b gcc-master https://github.com/mvaisakh/gcc-arm64.git gcc-arm64 && break || sleep 5; done
+          for i in 1 2 3; do git clone --depth=1 -b gcc-master https://github.com/mvaisakh/gcc-arm.git gcc-arm && break || sleep 5; done
+          # clang (带重试 + 完整性校验)
+          mkdir -p clang
+          ok=0
+          for i in 1 2 3 4 5; do
+            curl -fL --retry 5 --retry-delay 8 -C - "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-12.0.0_r1/clang-r416183b.tar.gz" -o clang.tar.gz
+            if gzip -t clang.tar.gz 2>/dev/null; then ok=1; break; fi
+            echo "clang tar corrupt, retry $i"; rm -f clang.tar.gz; sleep 8
+          done
+          [ "$ok" = "1" ] || { echo "FAILED to fetch clang"; exit 1; }
           tar xzf clang.tar.gz -C clang
           ls clang/bin/clang
 
