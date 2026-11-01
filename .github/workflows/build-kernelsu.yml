@@ -60,24 +60,30 @@ jobs:
           TOOL="$(pwd)/../tc"
           CLANG="$TOOL/clang/bin"
           G="$TOOL/gcc-arm64/bin"
-          # 软链 aarch64-elf-* -> aarch64-linux-gnu-* 让 $(CROSS_COMPILE)as 指向真 aarch64 汇编器
+          # as 用 GNU aarch64-elf-as(认 -EL); ld 用 AOSP clang 自带 ld.lld(支持 linux emulation)
           mkdir -p "$TOOL/gccbin"
-          for t in as ld ar nm objcopy objdump strip ranlib; do
+          for t in as ar nm objcopy objdump strip ranlib; do
             ln -sf "$G/aarch64-elf-$t" "$TOOL/gccbin/aarch64-linux-gnu-$t"
           done
           export PATH="$CLANG:$TOOL/gccbin:$PATH"
           python3 ../build/fix_wrapper.py scripts/gcc-wrapper.py
-          export HOSTCFLAGS="-fcommon"
-          make O=out ARCH=arm64 vendor/alioth_user_defconfig
+          make -j"$(nproc)" O=out ARCH=arm64 vendor/alioth_user_defconfig
           grep -q CONFIG_KSU out/.config || echo 'CONFIG_KSU=y' >> out/.config
           make O=out ARCH=arm64 olddefconfig
           grep -i '^CONFIG_KSU=' out/.config
-          # CROSS_COMPILE=aarch64-linux-gnu- 会让 make 用 gccbin 下软链的 as/ld(真aarch64)
+          # LD=ld.lld + -fuse-ld=lld 解决 aarch64linux emulation 问题
           make -j"$(nproc)" O=out ARCH=arm64 \
             CC="clang" \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE="$TOOL/gccbin/aarch64-linux-gnu-" \
             CROSS_COMPILE_ARM32="$TOOL/gcc-arm/bin/arm-eabi-" \
+            LD="ld.lld" \
+            AR="$TOOL/gccbin/aarch64-linux-gnu-ar" \
+            NM="$TOOL/gccbin/aarch64-linux-gnu-nm" \
+            OBJCOPY="$TOOL/gccbin/aarch64-linux-gnu-objcopy" \
+            OBJDUMP="$TOOL/gccbin/aarch64-linux-gnu-objdump" \
+            STRIP="$TOOL/gccbin/aarch64-linux-gnu-strip" \
+            KBUILD_LDFLAGS="-fuse-ld=lld" \
             HOSTCFLAGS="-fcommon" \
             Image
           IMG="$(find out -name Image | head -1)"
