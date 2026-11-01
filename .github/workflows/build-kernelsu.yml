@@ -8,6 +8,9 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 150
     steps:
+      - name: Checkout repo (for build scripts)
+        uses: actions/checkout@v4
+
       - name: Clone kernel source (alioth-r-oss) + AnyKernel3
         run: |
           git clone --depth=1 -b alioth-r-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
