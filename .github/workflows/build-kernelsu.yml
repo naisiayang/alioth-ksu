@@ -1,0 +1,79 @@
+name: Build KernelSU Kernel for alioth (4.19 non-GKI)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - name: Clone kernel source (alioth-r-oss) + AnyKernel3
+        run: |
+          git clone --depth=1 -b alioth-r-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ak3
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib \
+            gcc-multilib git gnupg gperf imagemagick lib32z1-dev libelf-dev liblz4-tool \
+            libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils \
+            lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev \
+            python3 cpio kmod device-tree-compiler unzip wget
+
+      - name: Fetch toolchains
+        run: |
+          mkdir -p tc && cd tc
+          git clone --depth=1 -b gcc-master https://github.com/mvaisakh/gcc-arm64.git gcc-arm64 &
+          git clone --depth=1 -b gcc-master https://github.com/mvaisakh/gcc-arm.git   gcc-arm &
+          wait
+          mkdir clang
+          curl -sL "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-12.0.0_r1/clang-r416183b.tar.gz" -o clang.tar.gz
+          tar xzf clang.tar.gz -C clang
+          echo "TC ready"; ls clang/bin/clang && ls gcc-arm64/bin/ | head
+
+      - name: Integrate KernelSU (v0.9.5 non-GKI)
+        run: |
+          cd kernel
+          wget -q "https://cdn.jsdelivr.net/gh/tiann/KernelSU@v0.9.5/kernel/setup.sh" -O /tmp/ksu-setup.sh
+          bash /tmp/ksu-setup.sh v0.9.5
+          echo "--- verify wiring ---"
+          grep -n kernelsu drivers/Makefile || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+          grep -n "drivers/kernelsu/Kconfig" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          grep -n kernelsu drivers/Makefile
+          grep -n kernelsu drivers/Kconfig
+
+      - name: Build Image
+        run: |
+          cd kernel
+          export ARCH=arm64 SUBARCH=arm64
+          TOOL=$(pwd)/../tc
+          export PATH="$TOOL/clang/bin:$PATH"
+          make O=out ARCH=arm64 vendor/alioth_user_defconfig
+          # 强制启用 KSU
+          grep -q CONFIG_KSU out/.config || echo 'CONFIG_KSU=y' >> out/.config
+          make O=out ARCH=arm64 olddefconfig
+          grep -i CONFIG_KSU out/.config
+          make -j$(nproc) O=out ARCH=arm64 \
+            CC="$TOOL/clang/bin/clang" CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE="$TOOL/gcc-arm64/bin/aarch64-elf-" \
+            CROSS_COMPILE_ARM32="$TOOL/gcc-arm/bin/arm-eabi-" \
+            Image
+          IMG=$(find out -name Image | head -1)
+          echo "IMG=$IMG"; ls -la "$IMG"
+          cp "$IMG" ../ak3/Image
+
+      - name: Package with AnyKernel3
+        run: |
+          cd ak3
+          sed -i 's/^kernel.string=.*/kernel.string=alioth-KernelSU/' anykernel.sh || true
+          grep -q 'device.name1' anykernel.sh && sed -i 's/device.name1=.*/device.name1=alioth/' anykernel.sh || echo 'device.name1=alioth' >> anykernel.sh
+          zip -r9 ../alioth-KernelSU-kernel.zip * -x .git README.md '*placeholder' .github
+          ls -la ../alioth-KernelSU-kernel.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: alioth-KernelSU-kernel
+          path: alioth-KernelSU-kernel.zip
