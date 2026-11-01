@@ -95,7 +95,7 @@ jobs:
             OBJCOPY="$TOOL/gccbin/aarch64-linux-gnu-objcopy" \
             OBJDUMP="$TOOL/gccbin/aarch64-linux-gnu-objdump" \
             STRIP="$TOOL/gccbin/aarch64-linux-gnu-strip" \
-            KBUILD_CFLAGS="-fno-builtin-stpcpy" \
+            KCFLAGS="-fno-builtin-stpcpy" \
             HOSTCFLAGS="-fcommon" \
             Image
           IMG="$(find out -name Image | head -1)"
