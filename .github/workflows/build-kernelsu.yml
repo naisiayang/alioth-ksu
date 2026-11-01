@@ -55,23 +55,27 @@ jobs:
           export ARCH=arm64 SUBARCH=arm64
           TOOL="$(pwd)/../tc"
           CLANG="$TOOL/clang/bin"
-          export PATH="$CLANG:$PATH"
-          # fix py2 wrapper
+          G="$TOOL/gcc-arm64/bin"
+          export PATH="$CLANG:$G:$PATH"
           python3 ../build/fix_wrapper.py scripts/gcc-wrapper.py
-          # dtc yylloc multiple-definition (newer bison): build host tools with -fcommon
           export HOSTCFLAGS="-fcommon"
-          # configure
           make O=out ARCH=arm64 vendor/alioth_user_defconfig
           grep -q CONFIG_KSU out/.config || echo 'CONFIG_KSU=y' >> out/.config
           make O=out ARCH=arm64 olddefconfig
           grep -i '^CONFIG_KSU=' out/.config
-          # build: AOSP clang integrated assembler + llvm binutils (aarch64 linux target, not elf)
+          # clang 编译 + GNU aarch64-elf binutils(认 -EL/-mlittle-endian)
           make -j"$(nproc)" O=out ARCH=arm64 \
             CC="clang" \
             CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+            CROSS_COMPILE="$G/aarch64-elf-" \
+            CROSS_COMPILE_ARM32="$TOOL/gcc-arm/bin/arm-eabi-" \
+            AS="$G/aarch64-elf-as" \
+            LD="$G/aarch64-elf-ld" \
+            AR="$G/aarch64-elf-ar" \
+            NM="$G/aarch64-elf-nm" \
+            OBJCOPY="$G/aarch64-elf-objcopy" \
+            OBJDUMP="$G/aarch64-elf-objdump" \
+            STRIP="$G/aarch64-elf-strip" \
             HOSTCFLAGS="-fcommon" \
             Image
           IMG="$(find out -name Image | head -1)"
