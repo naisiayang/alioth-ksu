@@ -68,21 +68,22 @@ jobs:
           TOOL="$(pwd)/../tc"
           CLANG="$TOOL/clang/bin"
           G="$TOOL/gcc-arm64/bin"
-          # as 用 GNU aarch64-elf-as(认 -EL); ld 用 AOSP clang 自带 ld.lld(支持 linux emulation)
           mkdir -p "$TOOL/gccbin"
           for t in as ar nm objcopy objdump strip ranlib; do
             ln -sf "$G/aarch64-elf-$t" "$TOOL/gccbin/aarch64-linux-gnu-$t"
           done
-          # ld 用 clang 自带的 ld.lld (支持 linux emulation), 软链成 aarch64-linux-gnu-ld
           ln -sf "$CLANG/ld.lld" "$TOOL/gccbin/aarch64-linux-gnu-ld"
-          ls -la "$TOOL/gccbin/aarch64-linux-gnu-ld"
           export PATH="$CLANG:$TOOL/gccbin:$PATH"
           python3 ../build/fix_wrapper.py scripts/gcc-wrapper.py
           make -j"$(nproc)" O=out ARCH=arm64 vendor/alioth_user_defconfig
           grep -q CONFIG_KSU out/.config || echo 'CONFIG_KSU=y' >> out/.config
+          # 关 MODVERSIONS: lld 下 __crc_ 符号 R_AARCH64_ABS32 relocation 报错的标准解法
+          scripts/config --file out/.config -d MODVERSIONS
+          scripts/config --file out/.config -d MODULE_SIG -d MODULE_SIG_ALL || true
           make O=out ARCH=arm64 olddefconfig
           grep -i '^CONFIG_KSU=' out/.config
-          # LD=ld.lld + -fuse-ld=lld 解决 aarch64linux emulation 问题
+          grep -i '^CONFIG_MODVERSIONS' out/.config || echo "MODVERSIONS disabled"
+          # -fno-builtin-stpcpy: 防止新clang把strcpy替换成内核没有的stpcpy
           make -j"$(nproc)" O=out ARCH=arm64 \
             CC="clang" \
             CLANG_TRIPLE=aarch64-linux-gnu- \
@@ -94,6 +95,7 @@ jobs:
             OBJCOPY="$TOOL/gccbin/aarch64-linux-gnu-objcopy" \
             OBJDUMP="$TOOL/gccbin/aarch64-linux-gnu-objdump" \
             STRIP="$TOOL/gccbin/aarch64-linux-gnu-strip" \
+            KBUILD_CFLAGS="-fno-builtin-stpcpy" \
             HOSTCFLAGS="-fcommon" \
             Image
           IMG="$(find out -name Image | head -1)"
