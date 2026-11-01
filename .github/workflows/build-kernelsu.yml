@@ -19,15 +19,19 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32z1-dev libelf-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 cpio kmod device-tree-compiler unzip wget
+          # 必需包 (24.04 兼容, 去掉 libncurses5 等已移除包)
+          sudo apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf \
+            imagemagick libelf-dev liblz4-tool libncurses-dev libsdl1.2-dev libssl-dev \
+            libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc \
+            zip zlib1g-dev python3 cpio kmod device-tree-compiler unzip wget libelf-dev
+          # 可选/可能缺失的包容错安装
+          sudo apt-get install -y g++-multilib gcc-multilib lib32z1-dev python2.7 || true
 
       - name: Ensure python2 (Qualcomm gcc-wrapper.py)
         run: |
           sudo apt-get install -y python2.7 || true
-          if ! command -v python2 >/dev/null 2>&1; then
-            if command -v python2.7 >/dev/null 2>&1; then sudo ln -sf "$(command -v python2.7)" /usr/local/bin/python2; fi
-          fi
-          python2 --version 2>&1 || echo "python2 absent"
+          if command -v python2.7 >/dev/null 2>&1; then sudo ln -sf "$(command -v python2.7)" /usr/local/bin/python2; fi
+          python2 --version 2>&1 || echo "python2 absent (will patch wrapper to py3)"
 
       - name: Fetch toolchains
         run: |
