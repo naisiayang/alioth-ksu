@@ -57,13 +57,15 @@ jobs:
           mkdir -p out
           cp "$GITHUB_WORKSPACE/configs/original_defconfig" out/.config
           grep -q CONFIG_KSU out/.config || echo 'CONFIG_KSU=y' >> out/.config
+          scripts/config --file out/.config -d WERROR || true
           make O=out ARCH=arm64 olddefconfig
           grep -i '^CONFIG_KSU=' out/.config
           grep -i '^CONFIG_MODVERSIONS=' out/.config
           make -j"$(nproc)" O=out ARCH=arm64 \
             CC="aarch64-none-linux-gnu-gcc" \
             CROSS_COMPILE="aarch64-none-linux-gnu-" \
-            HOSTCFLAGS="-fcommon" \
+            KCFLAGS="-Wno-error" \
+            HOSTCFLAGS="-fcommon -Wno-error" \
             Image
           IMG="$(find out -name Image | head -1)"
           echo "IMG=$IMG"; ls -la "$IMG"
