@@ -57,6 +57,7 @@ jobs:
       - name: Build with clang 10.0.7 + stock config
         run: |
           cd kernel
+          python3 "$GITHUB_WORKSPACE/build/fix_wrapper.py" scripts/gcc-wrapper.py
           export ARCH=arm64 SUBARCH=arm64
           export PATH="$CLANGDIR/bin:$GCC64:$GCC32:$PATH"
           mkdir -p out
