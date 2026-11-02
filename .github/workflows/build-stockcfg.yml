@@ -1,0 +1,85 @@
+name: Build KernelSU Kernel alioth (stock-config, ARM-GCC)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Clone kernel source + AnyKernel3
+        run: |
+          git clone --depth=1 -b alioth-r-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ak3
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf \
+            imagemagick libelf-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev \
+            libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc \
+            zip zlib1g-dev python3 cpio kmod device-tree-compiler unzip wget xz-utils
+          sudo apt-get install -y python2.7 || true
+          if command -v python2.7 >/dev/null 2>&1; then sudo ln -sf "$(command -v python2.7)" /usr/local/bin/python2; fi
+
+      - name: Fetch ARM aarch64 GCC 13 toolchain
+        run: |
+          mkdir -p tc && cd tc
+          curl -fL --retry 5 --retry-delay 10 -o gcc.tar.xz \
+            "https://developer.arm.com/-/media/Files/downloads/gnu/13.2.rel1/binrel/arm-gnu-toolchain-13.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz"
+          tar xf gcc.tar.xz
+          BIN=$(find . -name 'aarch64-none-linux-gnu-gcc' | head -1 | xargs -r dirname)
+          echo "BIN=$(pwd)/$BIN"
+          "$(pwd)/$BIN/aarch64-none-linux-gnu-gcc" --version | head -1
+          echo "TCBIN=$(pwd)/$BIN" >> $GITHUB_ENV
+
+      - name: Integrate KernelSU
+        run: |
+          cd kernel
+          wget -q "https://cdn.jsdelivr.net/gh/tiann/KernelSU@v0.9.5/kernel/setup.sh" -O /tmp/ksu-setup.sh
+          bash /tmp/ksu-setup.sh v0.9.5
+          grep -n kernelsu drivers/Makefile || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+          grep -n "drivers/kernelsu/Kconfig" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+
+      - name: Build Image with stock config (GCC)
+        run: |
+          cd kernel
+          export ARCH=arm64 SUBARCH=arm64
+          export PATH="$TCBIN:$PATH"
+          if [ -f scripts/gcc-wrapper.py ]; then
+            if [ -f build/fix_wrapper.py ]; then python3 build/fix_wrapper.py scripts/gcc-wrapper.py; fi
+            if [ -f ../build/fix_wrapper.py ]; then python3 ../build/fix_wrapper.py scripts/gcc-wrapper.py; fi
+          fi
+          mkdir -p out
+          cp "$GITHUB_WORKSPACE/configs/original_defconfig" out/.config
+          grep -q CONFIG_KSU out/.config || echo 'CONFIG_KSU=y' >> out/.config
+          make O=out ARCH=arm64 olddefconfig
+          grep -i '^CONFIG_KSU=' out/.config
+          grep -i '^CONFIG_MODVERSIONS=' out/.config
+          make -j"$(nproc)" O=out ARCH=arm64 \
+            CC="aarch64-none-linux-gnu-gcc" \
+            CROSS_COMPILE="aarch64-none-linux-gnu-" \
+            HOSTCFLAGS="-fcommon" \
+            Image
+          IMG="$(find out -name Image | head -1)"
+          echo "IMG=$IMG"; ls -la "$IMG"
+          cp "$IMG" ../ak3/Image
+
+      - name: Package AnyKernel3
+        run: |
+          cd ak3
+          printf '%s\n' "properties() { '" "kernel.string=alioth-KernelSU" "do.devicecheck=1" "do.modules=0" "do.systemless=1" "do.cleanup=1" "device.name1=alioth" "'; }" "BLOCK=/dev/block/by-name/boot;" "IS_SLOT_DEVICE=1;" ". tools/ak3-core.sh;" "write_boot;" > anykernel.sh
+          zip -r9 ../alioth-KernelSU-kernel.zip * -x .git README.md '*placeholder' .github
+          ls -la ../alioth-KernelSU-kernel.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: alioth-KernelSU-stockcfg-gcc
+          path: |
+            alioth-KernelSU-kernel.zip
+            ak3/Image
