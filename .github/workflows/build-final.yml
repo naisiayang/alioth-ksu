@@ -75,6 +75,7 @@ jobs:
             CROSS_COMPILE="$(pwd)/../tc/gccbin/aarch64-linux-gnu-" \
             CROSS_COMPILE_ARM32="$GCC32/arm-eabi-" \
             LD=ld.lld \
+            KCFLAGS="-fno-builtin-stpcpy" \
             HOSTCFLAGS="-fcommon" \
             Image
           IMG="$(find out -name Image | head -1)"
