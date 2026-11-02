@@ -64,7 +64,7 @@ jobs:
           make -j"$(nproc)" O=out ARCH=arm64 \
             CC="aarch64-none-linux-gnu-gcc" \
             CROSS_COMPILE="aarch64-none-linux-gnu-" \
-            KCFLAGS="-w" \
+            KCFLAGS="-w -fno-PIE -fno-pic -mcmodel=large" \
             HOSTCFLAGS="-fcommon -Wno-error" \
             Image
           IMG="$(find out -name Image | head -1)"
