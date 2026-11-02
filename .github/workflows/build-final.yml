@@ -1,0 +1,97 @@
+name: Build KernelSU alioth (stock-config final)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone kernel + AnyKernel3
+        run: |
+          git clone --depth=1 -b alioth-r-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ak3
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf \
+            imagemagick libelf-dev liblz4-tool libncurses-dev libsdl1.2-dev libssl-dev \
+            libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip \
+            zlib1g-dev python3-dev cpio kmod device-tree-compiler unzip wget
+
+      - name: Fetch toolchain (mvaisakh gcc-arm64 + AOSP clang12)
+        run: |
+          mkdir -p tc && cd tc
+          git clone --depth=1 -b gcc-master https://github.com/mvaisakh/gcc-arm64.git gcc-arm64
+          git clone --depth=1 -b gcc-master https://github.com/mvaisakh/gcc-arm.git gcc-arm
+          mkdir clang
+          ok=0
+          for i in 1 2 3 4 5; do
+            curl -fL --retry 5 --retry-delay 8 -o clang.tar.gz "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-12.0.0_r1/clang-r416183b.tar.gz"
+            if gzip -t clang.tar.gz 2>/dev/null; then ok=1; break; fi
+            rm -f clang.tar.gz; sleep 8
+          done
+          [ "$ok" = "1" ] || exit 1
+          tar xzf clang.tar.gz -C clang
+          clang/bin/clang --version | head -1
+          echo "CLANG=$(pwd)/clang/bin" >> $GITHUB_ENV
+          echo "GCC64=$(pwd)/gcc-arm64/bin" >> $GITHUB_ENV
+          echo "GCC32=$(pwd)/gcc-arm/bin" >> $GITHUB_ENV
+
+      - name: Integrate KernelSU
+        run: |
+          cd kernel
+          python3 "$GITHUB_WORKSPACE/build/fix_wrapper.py" scripts/gcc-wrapper.py
+          wget -q "https://cdn.jsdelivr.net/gh/tiann/KernelSU@v0.9.5/kernel/setup.sh" -O /tmp/s.sh
+          bash /tmp/s.sh v0.9.5
+          grep -n kernelsu drivers/Makefile || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+          grep -n "drivers/kernelsu/Kconfig" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+
+      - name: Build (stock config, MODVERSIONS off)
+        run: |
+          cd kernel
+          python3 "$GITHUB_WORKSPACE/build/fix_wrapper.py" scripts/gcc-wrapper.py
+          export ARCH=arm64 SUBARCH=arm64
+          export PATH="$CLANG:$GCC64:$GCC32:$PATH"
+          # 软链 aarch64-elf-* -> aarch64-linux-gnu-*
+          mkdir -p ../tc/gccbin
+          for t in as ar nm objcopy objdump strip ranlib; do ln -sf "$GCC64/aarch64-elf-$t" "../tc/gccbin/aarch64-linux-gnu-$t"; done
+          ln -sf "$CLANG/ld.lld" "../tc/gccbin/aarch64-linux-gnu-ld"
+          export PATH="$(pwd)/../tc/gccbin:$PATH"
+          mkdir -p out
+          cp "$GITHUB_WORKSPACE/configs/original_defconfig" out/.config
+          grep -q CONFIG_KSU out/.config || echo 'CONFIG_KSU=y' >> out/.config
+          # 关 MODVERSIONS 解决 __crc relocation (不影响启动)
+          scripts/config --file out/.config -d MODVERSIONS
+          make O=out ARCH=arm64 olddefconfig
+          grep -i '^CONFIG_KSU=' out/.config
+          grep -i '^CONFIG_MODVERSIONS=' out/.config || echo "MODVERSIONS off"
+          make -j"$(nproc)" O=out ARCH=arm64 \
+            CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE="$(pwd)/../tc/gccbin/aarch64-linux-gnu-" \
+            CROSS_COMPILE_ARM32="$GCC32/arm-eabi-" \
+            LD=ld.lld \
+            HOSTCFLAGS="-fcommon" \
+            Image
+          IMG="$(find out -name Image | head -1)"
+          echo "IMG=$IMG"; ls -la "$IMG"
+          cp "$IMG" ../ak3/Image
+
+      - name: Package AnyKernel3
+        run: |
+          cd ak3
+          printf '%s\n' "properties() { '" "kernel.string=alioth-KernelSU" "do.devicecheck=1" "do.modules=0" "do.systemless=1" "do.cleanup=1" "device.name1=alioth" "'; }" "BLOCK=/dev/block/by-name/boot;" "IS_SLOT_DEVICE=1;" ". tools/ak3-core.sh;" "write_boot;" > anykernel.sh
+          zip -r9 ../alioth-KernelSU-kernel.zip * -x .git README.md '*placeholder' .github
+          ls -la ../alioth-KernelSU-kernel.zip
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: alioth-KernelSU-final
+          path: |
+            alioth-KernelSU-kernel.zip
+            ak3/Image
